@@ -1,11 +1,12 @@
 package com.example.demo.jdbc;
 
+import com.example.demo.dto.AdvanceResult;
+import com.example.demo.dto.CountRecord;
 import com.example.demo.dto.OrderSearch;
 import com.example.demo.dto.SearchRequest;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.apache.logging.log4j.util.Strings;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -22,12 +23,11 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-public class SearchService {
-
+public class AdvanceSearchService {
     private final JdbcSearchRepository searchRepository;
 
-    public Page<OrderSearch> search(SearchRequest searchRequest) {
-        return searchRepository.search(
+    public AdvanceResult<OrderSearch> search(SearchRequest searchRequest) {
+        return searchRepository.advanceSearch(
                 () -> buildSelectClause(searchRequest.getSelectFields()),
                 ()-> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()),
                 (params) -> buildWhereClause(searchRequest, params),
@@ -36,7 +36,6 @@ public class SearchService {
                     String formatQuery = """
                     SELECT %s
                           FROM orders o
-                             INNER JOIN order_detail odd ON odd.order_id = o.id
                           WHERE %s
                           ORDER BY %s
                           %s
@@ -45,11 +44,19 @@ public class SearchService {
                 },
                 (where) -> String.format(
                         """
-                                SELECT COUNT(*) FROM orders o
-                                INNER JOIN order_detail odd ON odd.order_id = o.id
+                            SELECT COUNT(*) as total,
+                             SUM(CASE WHEN o.order_status = 'SUCCESS' THEN 1 ELSE 0 END) as totalSuccess,
+                             SUM(CASE WHEN o.order_status = 'FAILURE' THEN 1 ELSE 0 END) as totalFailure
+                             FROM orders o
                                 WHERE %s
                                 """, where),
-                new OrderMapper(),
+                new AdvanceSearchService.OrderMapper(),
+                new AdvanceSearchService.CountMapper(),
+                (page, countRecord) -> AdvanceResult.<OrderSearch>builder()
+                        .page(page)
+                        .totalFailure(countRecord.getTotalFailure())
+                        .totalSuccess(countRecord.getTotalSuccess())
+                        .build(),
                 PageRequest.of(searchRequest.getPageRequest().getPage(), searchRequest.getPageRequest().getSize())
         );
     }
@@ -69,9 +76,27 @@ public class SearchService {
             params.addValue("to", LocalDate.parse(searchRequest.getTo()).atTime(LocalTime.MAX));
         }
         if (conditions.isEmpty()) {
+            conditions.add("1 = 1");
+        }
+        conditions.add(buildSubWhereClause(searchRequest, params));
+        return String.join(" AND ", conditions);
+    }
+
+    private String buildSubWhereClause(SearchRequest searchRequest, MapSqlParameterSource params) {
+        List<String> conditions = new ArrayList<>();
+        if (Strings.isNotBlank(searchRequest.getCustomerName())) {
+            conditions.add("od.customer_name = :customerName");
+            params.addValue("customerName", searchRequest.getCustomerName());
+        }
+        if (conditions.isEmpty()) {
             return "1 = 1";
         }
-        return String.join(" AND ", conditions);
+        return String.format("""
+                EXISTS (
+                SELECT 1 FROM order_detail od WHERE od.order_id = o.id
+                    AND %s
+                )
+                """, String.join(" AND ", conditions));
     }
 
     private String buildSelectClause(Map<String, String> selectFields) {
@@ -97,10 +122,21 @@ public class SearchService {
         public OrderSearch mapRow(ResultSet rs, int rowNum) throws SQLException {
             return OrderSearch.builder()
                     .orderNo(rs.getString("orderNo"))
-                    .customerName(rs.getString("customerName"))
                     .orderDate(rs.getTimestamp("orderDate").toLocalDateTime())
                     .status(rs.getString("status"))
                     .refNo(rs.getString("refNo"))
+                    .build();
+        }
+    }
+
+    @Data
+    public static class CountMapper implements RowMapper<CountRecord> {
+        @Override
+        public CountRecord mapRow(ResultSet rs, int rowNum) throws SQLException {
+            return CountRecord.builder()
+                    .total(rs.getInt("total"))
+                    .totalFailure(rs.getInt("totalFailure"))
+                    .totalSuccess(rs.getInt("totalSuccess"))
                     .build();
         }
     }
