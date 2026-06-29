@@ -31,19 +31,19 @@ public class SearchService {
                 () -> buildSelectClause(searchRequest.getSelectFields()),
                 () -> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()),
                 params -> buildWhereClause(searchRequest, params),
-                (select, where, order, paging) -> """
-            SELECT %s
-            FROM orders o
-            WHERE %s
-            ORDER BY %s
-            %s
-        """.formatted(select, where, order, paging),
-                where -> """
-            SELECT
-                COUNT(*) 
-            FROM orders o
-            WHERE %s
-        """.formatted(where),
+                """
+                            SELECT %s
+                            FROM orders o
+                            WHERE %s
+                            ORDER BY %s
+                            %s
+                        """::formatted,
+                """
+                            SELECT
+                                COUNT(*) 
+                            FROM orders o
+                            WHERE %s
+                        """::formatted,
                 new OrderMapper(),
                 null
         );
