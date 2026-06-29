@@ -11,15 +11,10 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 @SpringBootApplication
 public class DemoApplication {
@@ -30,7 +25,7 @@ public class DemoApplication {
 	}
 
 	@Bean
-	public CommandLineRunner init (AdvanceSearchService searchService, OrderDetailRepository repository, OrderRepository orderRepository) {
+	public CommandLineRunner init (SearchService searchService, OrderDetailRepository repository, OrderRepository orderRepository) {
 		return  args -> {
 
 			Order order = new Order();
@@ -68,7 +63,6 @@ public class DemoApplication {
 			var result = searchService.search(SearchRequest.builder()
 					.from("2026-06-28")
 					.to("2026-07-01")
-							.customerName("Nguyen Van A11")
 					.selectFields(Map.of(
 							"refNo", "o.ref_no",
 							"orderNo", "o.order_no",
@@ -83,8 +77,7 @@ public class DemoApplication {
 							.build())
 					.build());
 
-			System.out.println(result.getTotalFailure());
-			System.out.println(result.getTotalSuccess());
+			System.out.println(result.hasNext());
 		};
 	}
 }

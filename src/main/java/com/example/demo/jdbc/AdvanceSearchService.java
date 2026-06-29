@@ -27,41 +27,40 @@ public class AdvanceSearchService {
     private final JdbcSearchRepository searchRepository;
 
     public AdvanceResult<OrderSearch> search(SearchRequest searchRequest) {
-        return searchRepository.advanceSearch(
+        JdbcSearchRepository.SearchQuery<OrderSearch, CountRecord> query = new JdbcSearchRepository.SearchQuery<>(
                 () -> buildSelectClause(searchRequest.getSelectFields()),
-                ()-> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()),
-                (params) -> buildWhereClause(searchRequest, params),
-                (select, where, order, paging)
-                        -> {
-                    String formatQuery = """
-                    SELECT %s
-                          FROM orders o
-                          WHERE %s
-                          ORDER BY %s
-                          %s
-                """;
-                    return String.format(formatQuery, select, where, order, paging);
-                },
-                (where) -> String.format(
-                        """
-                            SELECT COUNT(*) as total,
-                             SUM(CASE WHEN o.order_status = 'SUCCESS' THEN 1 ELSE 0 END) as totalSuccess,
-                             SUM(CASE WHEN o.order_status = 'FAILURE' THEN 1 ELSE 0 END) as totalFailure
-                             FROM orders o
-                                WHERE %s
-                                """, where),
-                new AdvanceSearchService.OrderMapper(),
-                new AdvanceSearchService.CountMapper(),
+                () -> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()),
+                params -> buildWhereClause(searchRequest, params),
+                (select, where, order, paging) -> """
+            SELECT %s
+            FROM orders o
+            WHERE %s
+            ORDER BY %s
+            %s
+        """.formatted(select, where, order, paging),
+                where -> """
+            SELECT
+                COUNT(*) total,
+                SUM(CASE WHEN o.order_status='SUCCESS' THEN 1 ELSE 0 END) totalSuccess,
+                SUM(CASE WHEN o.order_status='FAILURE' THEN 1 ELSE 0 END) totalFailure
+            FROM orders o
+            WHERE %s
+        """.formatted(where),
+                new OrderMapper(),
+                new CountMapper()
+        );
+        return searchRepository.advanceSearch(
+                PageRequest.of(searchRequest.getPageRequest().getPage(), searchRequest.getPageRequest().getSize()),
+                query,
                 (page, countRecord) -> AdvanceResult.<OrderSearch>builder()
                         .page(page)
                         .totalFailure(countRecord.getTotalFailure())
                         .totalSuccess(countRecord.getTotalSuccess())
-                        .build(),
-                PageRequest.of(searchRequest.getPageRequest().getPage(), searchRequest.getPageRequest().getSize())
+                        .build()
         );
     }
 
-    private String buildWhereClause(SearchRequest searchRequest, MapSqlParameterSource params) {
+    private JdbcSearchRepository.SqlQuery buildWhereClause(SearchRequest searchRequest, MapSqlParameterSource params) {
         List<String> conditions = new ArrayList<>();
         if (Strings.isNotBlank(searchRequest.getOrderNo())) {
             conditions.add("o.order_no = :orderNo");
@@ -79,7 +78,7 @@ public class AdvanceSearchService {
             conditions.add("1 = 1");
         }
         conditions.add(buildSubWhereClause(searchRequest, params));
-        return String.join(" AND ", conditions);
+        return new JdbcSearchRepository.SqlQuery(String.join(" AND ", conditions), params);
     }
 
     private String buildSubWhereClause(SearchRequest searchRequest, MapSqlParameterSource params) {

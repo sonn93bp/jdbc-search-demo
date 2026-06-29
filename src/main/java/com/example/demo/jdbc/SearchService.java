@@ -27,34 +27,31 @@ public class SearchService {
     private final JdbcSearchRepository searchRepository;
 
     public Page<OrderSearch> search(SearchRequest searchRequest) {
-        return searchRepository.search(
+        JdbcSearchRepository.SearchQuery<OrderSearch, Void> query = new JdbcSearchRepository.SearchQuery<>(
                 () -> buildSelectClause(searchRequest.getSelectFields()),
-                ()-> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()),
-                (params) -> buildWhereClause(searchRequest, params),
-                (select, where, order, paging)
-                        -> {
-                    String formatQuery = """
-                    SELECT %s
-                          FROM orders o
-                             INNER JOIN order_detail odd ON odd.order_id = o.id
-                          WHERE %s
-                          ORDER BY %s
-                          %s
-                """;
-                    return String.format(formatQuery, select, where, order, paging);
-                },
-                (where) -> String.format(
-                        """
-                                SELECT COUNT(*) FROM orders o
-                                INNER JOIN order_detail odd ON odd.order_id = o.id
-                                WHERE %s
-                                """, where),
+                () -> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()),
+                params -> buildWhereClause(searchRequest, params),
+                (select, where, order, paging) -> """
+            SELECT %s
+            FROM orders o
+            WHERE %s
+            ORDER BY %s
+            %s
+        """.formatted(select, where, order, paging),
+                where -> """
+            SELECT
+                COUNT(*) 
+            FROM orders o
+            WHERE %s
+        """.formatted(where),
                 new OrderMapper(),
-                PageRequest.of(searchRequest.getPageRequest().getPage(), searchRequest.getPageRequest().getSize())
+                null
         );
+        return searchRepository.search(query, PageRequest.of(searchRequest.getPageRequest().getPage(),
+                searchRequest.getPageRequest().getSize()));
     }
 
-    private String buildWhereClause(SearchRequest searchRequest, MapSqlParameterSource params) {
+    private JdbcSearchRepository.SqlQuery buildWhereClause(SearchRequest searchRequest, MapSqlParameterSource params) {
         List<String> conditions = new ArrayList<>();
         if (Strings.isNotBlank(searchRequest.getOrderNo())) {
             conditions.add("o.order_no = :orderNo");
@@ -69,9 +66,9 @@ public class SearchService {
             params.addValue("to", LocalDate.parse(searchRequest.getTo()).atTime(LocalTime.MAX));
         }
         if (conditions.isEmpty()) {
-            return "1 = 1";
+            conditions.add("1 = 1");
         }
-        return String.join(" AND ", conditions);
+        return new JdbcSearchRepository.SqlQuery(String.join(" AND ", conditions), params);
     }
 
     private String buildSelectClause(Map<String, String> selectFields) {
@@ -97,7 +94,6 @@ public class SearchService {
         public OrderSearch mapRow(ResultSet rs, int rowNum) throws SQLException {
             return OrderSearch.builder()
                     .orderNo(rs.getString("orderNo"))
-                    .customerName(rs.getString("customerName"))
                     .orderDate(rs.getTimestamp("orderDate").toLocalDateTime())
                     .status(rs.getString("status"))
                     .refNo(rs.getString("refNo"))

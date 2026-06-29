@@ -1,20 +1,16 @@
 package com.example.demo.jdbc;
 
 import com.example.demo.dto.BaseCount;
-import com.example.demo.function.QuadFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.function.BiFunction;
-import java.util.function.Function;
-import java.util.function.Supplier;
 
 @Repository
 @RequiredArgsConstructor
@@ -22,92 +18,94 @@ public class JdbcSearchRepositoryImpl implements JdbcSearchRepository {
 
     private final NamedParameterJdbcTemplate jdbc;
 
-    public <T> Page<T> search(Supplier<String> selectClause,
-                          Supplier<String> orderClause,
-                          Function<MapSqlParameterSource, String> whereClause,
-                          QuadFunction<String, String, String, String, String> rootClause,
-                          Function<String, String> countClause,
-                          RowMapper<T> rowMapper,
-                          Pageable pageable) {
-        SearchContext<T> ctx = executeSearch(
-                selectClause,
-                orderClause,
-                whereClause,
-                rootClause,
-                rowMapper,
-                pageable);
+    @Override
+    public <T> Page<T> search(SearchQuery<T, Void> query, Pageable pageable) {
+
+        SearchContext<T> ctx = executeSearch(pageable, query);
 
         Long total = jdbc.queryForObject(
-                countClause.apply(ctx.where()),
-                ctx.params(),
-                Long.class);
+                query.countSql().apply(ctx.whereSql()),
+                copy(ctx.params()),
+                Long.class
+        );
 
         return new PageImpl<>(ctx.content(), pageable, total);
     }
 
+    // =========================
+    // ADVANCED SEARCH
+    // =========================
     @Override
-    public <R, T , Q extends BaseCount> R advanceSearch(Supplier<String> selectClause, Supplier<String> orderClause,
-                                                        Function<MapSqlParameterSource, String> whereClause,
-                                                        QuadFunction<String, String, String, String, String> rootClause,
-                                                        Function<String, String> countClause,
-                                                        RowMapper<T> rowMapper,
-                                                        RowMapper<Q> countMapper,
-                                                        BiFunction<Page<T>, Q, R> mapResult,
-                                                        Pageable pageable) {
-        SearchContext<T> ctx = executeSearch(
-                selectClause,
-                orderClause,
-                whereClause,
-                rootClause,
-                rowMapper,
-                pageable);
+    public <R, T, Q extends BaseCount> R advanceSearch(
+            Pageable pageable,
+            SearchQuery<T, Q> query,
+            BiFunction<Page<T>, Q, R> mapper) {
+
+        SearchContext<T> ctx = executeSearch(pageable, query);
 
         Q count = jdbc.queryForObject(
-                countClause.apply(ctx.where()),
-                ctx.params(),
-                countMapper);
+                query.countSql().apply(ctx.whereSql()),
+                copy(ctx.params()),
+                query.countMapper()
+        );
 
         Page<T> page = new PageImpl<>(
                 ctx.content(),
                 pageable,
-                count.getTotal());
+                count.getTotal()
+        );
 
-        return mapResult.apply(page, count);
+        return mapper.apply(page, count);
     }
 
-    private <T> SearchContext<T> executeSearch(
-            Supplier<String> selectClause,
-            Supplier<String> orderClause,
-            Function<MapSqlParameterSource, String> whereClause,
-            QuadFunction<String, String, String, String, String> rootClause,
-            RowMapper<T> rowMapper,
-            Pageable pageable) {
+    // =========================
+    // CORE EXECUTION (FAST PATH)
+    // =========================
+    private <T, Q> SearchContext<T> executeSearch(
+            Pageable pageable,
+            SearchQuery<T, Q> query) {
 
         MapSqlParameterSource params = new MapSqlParameterSource();
 
-        String where = whereClause.apply(params);
-        String select = selectClause.get();
-        String order = orderClause.get();
+        SqlQuery whereResult = query.where().build(params);
 
-        String paging = """
-            OFFSET :offset ROWS
-            FETCH NEXT :limit ROWS ONLY
-            """;
-
-        String sql = rootClause.apply(select, where, order, paging);
+        String sql = query.root().apply(
+                query.select().get(),
+                whereResult.sql(),
+                query.order().get(),
+                PAGING_SQL
+        );
 
         params.addValue("offset", pageable.getOffset());
         params.addValue("limit", pageable.getPageSize());
 
-        List<T> content = jdbc.query(sql, params, rowMapper);
+        List<T> content = jdbc.query(sql, params, query.rowMapper());
 
-        return new SearchContext<>(content, params, where);
+        return new SearchContext<>(content, whereResult.sql(), params);
     }
 
+    // =========================
+    // IMMUTABLE CONTEXT
+    // =========================
     private record SearchContext<T>(
             List<T> content,
-            MapSqlParameterSource params,
-            String where
+            String whereSql,
+            MapSqlParameterSource params
     ) {}
+
+    // =========================
+    // SAFE COPY PARAMS
+    // =========================
+    private MapSqlParameterSource copy(MapSqlParameterSource src) {
+        return new MapSqlParameterSource(src.getValues());
+    }
+
+    // =========================
+    // CONSTANT
+    // =========================
+    private static final String PAGING_SQL = """
+        OFFSET :offset ROWS
+        FETCH NEXT :limit ROWS ONLY
+        """;
 
 }

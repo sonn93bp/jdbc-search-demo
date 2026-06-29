@@ -15,21 +15,31 @@ import java.util.function.Supplier;
 @NoRepositoryBean
 public interface JdbcSearchRepository {
 
-    <T> Page<T> search(Supplier<String> selectClause,
-                          Supplier<String> orderClause,
-                          Function<MapSqlParameterSource, String> whereClause,
-                          QuadFunction<String, String, String, String, String> rootClause,
-                          Function<String, String> countClause,
-                          RowMapper<T> rowMapper,
-                          Pageable pageable);
+    <T> Page<T> search(SearchQuery<T, Void> query, Pageable pageable);
 
-    <R, T , Q extends BaseCount> R advanceSearch(Supplier<String> selectClause,
-                                                 Supplier<String> orderClause,
-                                                 Function<MapSqlParameterSource, String> whereClause,
-                                                 QuadFunction<String, String, String, String, String> rootClause,
-                                                 Function<String, String> countClause,
-                                                 RowMapper<T> rowMapper,
-                                                 RowMapper<Q> countMapper,
-                                                 BiFunction<Page<T>, Q , R> mapResult,
-                                                 Pageable pageable);
+    <R, T, Q extends BaseCount> R advanceSearch(
+            Pageable pageable,
+            SearchQuery<T, Q> query,
+            BiFunction<Page<T>, Q, R> mapper
+    );
+
+    record SqlQuery(
+            String sql,
+            MapSqlParameterSource params
+    ) {}
+
+    record SearchQuery<T, Q>(
+            Supplier<String> select,
+            Supplier<String> order,
+            WhereClause where,
+            QuadFunction<String, String, String, String, String> root,
+            Function<String, String> countSql,
+            RowMapper<T> rowMapper,
+            RowMapper<Q> countMapper
+    ) {}
+}
+
+@FunctionalInterface
+interface WhereClause {
+    JdbcSearchRepository.SqlQuery build(MapSqlParameterSource params);
 }
