@@ -24,7 +24,7 @@ public class JdbcSearchRepositoryImpl implements JdbcSearchRepository {
         SearchContext<T> ctx = executeSearch(pageable, query);
 
         Long total = jdbc.queryForObject(
-                query.countSql().apply(ctx.whereSql()),
+                SqlClause.safe(query.countSql().apply(ctx.whereSql())).sql(),
                 copy(ctx.params()),
                 Long.class
         );
@@ -44,7 +44,7 @@ public class JdbcSearchRepositoryImpl implements JdbcSearchRepository {
         SearchContext<T> ctx = executeSearch(pageable, query);
 
         Q count = jdbc.queryForObject(
-                query.countSql().apply(ctx.whereSql()),
+                SqlClause.safe(query.countSql().apply(ctx.whereSql())).sql(),
                 copy(ctx.params()),
                 query.countMapper()
         );
@@ -79,7 +79,7 @@ public class JdbcSearchRepositoryImpl implements JdbcSearchRepository {
         params.addValue("offset", pageable.getOffset());
         params.addValue("limit", pageable.getPageSize());
 
-        List<T> content = jdbc.query(sql, params, query.rowMapper());
+        List<T> content = jdbc.query(SqlClause.safe(sql).sql(), params, query.rowMapper());
 
         return new SearchContext<>(content, whereResult.sql(), params);
     }

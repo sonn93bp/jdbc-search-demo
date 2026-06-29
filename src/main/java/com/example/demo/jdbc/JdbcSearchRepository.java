@@ -2,6 +2,7 @@ package com.example.demo.jdbc;
 
 import com.example.demo.dto.BaseCount;
 import com.example.demo.function.QuadFunction;
+import lombok.Builder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.NoRepositoryBean;
@@ -23,11 +24,13 @@ public interface JdbcSearchRepository {
             BiFunction<Page<T>, Q, R> mapper
     );
 
+    @Builder
     record SqlQuery(
             String sql,
             MapSqlParameterSource params
     ) {}
 
+    @Builder
     record SearchQuery<T, Q>(
             Supplier<String> select,
             Supplier<String> order,

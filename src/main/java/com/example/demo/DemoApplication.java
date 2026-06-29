@@ -25,7 +25,7 @@ public class DemoApplication {
 	}
 
 	@Bean
-	public CommandLineRunner init (SearchService searchService, OrderDetailRepository repository, OrderRepository orderRepository) {
+	public CommandLineRunner init (AdvanceSearchService searchService, OrderDetailRepository repository, OrderRepository orderRepository) {
 		return  args -> {
 
 			Order order = new Order();
@@ -77,7 +77,7 @@ public class DemoApplication {
 							.build())
 					.build());
 
-			System.out.println(result.hasNext());
+			System.out.println(result.getTotalFailure());
 		};
 	}
 }

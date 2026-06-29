@@ -27,28 +27,29 @@ public class AdvanceSearchService {
     private final JdbcSearchRepository searchRepository;
 
     public AdvanceResult<OrderSearch> search(SearchRequest searchRequest) {
-        JdbcSearchRepository.SearchQuery<OrderSearch, CountRecord> query = new JdbcSearchRepository.SearchQuery<>(
-                () -> buildSelectClause(searchRequest.getSelectFields()),
-                () -> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()),
-                params -> buildWhereClause(searchRequest, params),
-                """
+        var query = JdbcSearchRepository.SearchQuery.<OrderSearch, CountRecord>builder()
+                .select(() -> buildSelectClause(searchRequest.getSelectFields()))
+                .order(() -> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()))
+                .where(params -> buildWhereClause(searchRequest, params))
+                .root("""
                             SELECT %s
                             FROM orders o
                             WHERE %s
                             ORDER BY %s
                             %s
-                        """::formatted,
-                """
+                        """::formatted)
+                .countSql("""
                             SELECT
                                 COUNT(*) total,
                                 SUM(CASE WHEN o.order_status='SUCCESS' THEN 1 ELSE 0 END) totalSuccess,
                                 SUM(CASE WHEN o.order_status='FAILURE' THEN 1 ELSE 0 END) totalFailure
                             FROM orders o
                             WHERE %s
-                        """::formatted,
-                new OrderMapper(),
-                new CountMapper()
-        );
+                        """::formatted)
+                .rowMapper(new OrderMapper())
+                .countMapper(new CountMapper())
+                .build();
+
         return searchRepository.advanceSearch(
                 PageRequest.of(searchRequest.getPageRequest().getPage(), searchRequest.getPageRequest().getSize()),
                 query,

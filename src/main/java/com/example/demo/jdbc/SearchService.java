@@ -27,26 +27,27 @@ public class SearchService {
     private final JdbcSearchRepository searchRepository;
 
     public Page<OrderSearch> search(SearchRequest searchRequest) {
-        JdbcSearchRepository.SearchQuery<OrderSearch, Void> query = new JdbcSearchRepository.SearchQuery<>(
-                () -> buildSelectClause(searchRequest.getSelectFields()),
-                () -> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()),
-                params -> buildWhereClause(searchRequest, params),
-                """
+        var query = JdbcSearchRepository.SearchQuery.<OrderSearch, Void>builder()
+                .select(() -> buildSelectClause(searchRequest.getSelectFields()))
+                .order(() -> buildOrderClause(searchRequest.getPageRequest(), searchRequest.getSelectFields()))
+                .where(params -> buildWhereClause(searchRequest, params))
+                .root("""
                             SELECT %s
                             FROM orders o
                             WHERE %s
                             ORDER BY %s
                             %s
-                        """::formatted,
-                """
+                        """::formatted)
+                .countSql(
+                        """
                             SELECT
                                 COUNT(*) 
                             FROM orders o
                             WHERE %s
-                        """::formatted,
-                new OrderMapper(),
-                null
-        );
+                        """::formatted
+                ).rowMapper(new OrderMapper())
+                .build();
+
         return searchRepository.search(query, PageRequest.of(searchRequest.getPageRequest().getPage(),
                 searchRequest.getPageRequest().getSize()));
     }
@@ -68,7 +69,10 @@ public class SearchService {
         if (conditions.isEmpty()) {
             conditions.add("1 = 1");
         }
-        return new JdbcSearchRepository.SqlQuery(String.join(" AND ", conditions), params);
+        return JdbcSearchRepository.SqlQuery.builder()
+                .sql(String.join(" AND ", conditions))
+                .params(params)
+                .build();
     }
 
     private String buildSelectClause(Map<String, String> selectFields) {
